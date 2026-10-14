@@ -7,7 +7,7 @@ const DEMO_CANDIDATES = [
   { office: 'Prefeito', number: '12', name: 'Carla Simulada', party: 'EDU', photoUrl: '' },
 ];
 const DEMO_OFFICES = ['Vereador', 'Prefeito'];
-const demo = new URLSearchParams(location.search).get('demo') === '1';
+const demo = new URLSearchParams(location.search).get('demo') === '1' || import.meta.env.VITE_DEMO_MODE === 'true';
 
 export default function Urna() {
   const [electionId, setElectionId] = useState('');

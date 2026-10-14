@@ -26,6 +26,8 @@ Todas as rotas administrativas e de mesário abaixo recebem `Authorization: Bear
 
 O painel é acessado em `http://localhost:5173/?admin=1`; ele permite criar eleição, eleitores, candidatos, abrir/encerrar votação, liberar token e ver/baixar o BU. A entrada da chave é uma tela demonstrativa, não uma autenticação de produção. A urna fica em `http://localhost:5173/`; para modo desconectado, use `?demo=1`.
 
+O workflow `.github/workflows/pages.yml` publica automaticamente o modo urna demonstrativo em `https://mpcsolutionstec.github.io/urna-eletronica/` após cada push em `main`. GitHub Pages hospeda somente o front-end estático; o painel/API com Firestore precisa de um backend hospedado separadamente.
+
 1. `POST /api/admin/elections` `{ "name": "Demonstração", "offices": ["Deputado", "Governador"] }` cria pleito em rascunho com a ordem dos cargos. Se `offices` for omitido, usa `Vereador`.
 2. `POST /api/admin/voters` `{ "electionId": "...", "cpf": "...", "name": "Eleitor de teste" }` registra/associa eleitor ao pleito; CPF de teste precisa passar nos dígitos verificadores.
 3. `POST /api/admin/candidates` `{ "electionId": "...", "office": "Vereador", "number": "12345", "name": "Ana Exemplo", "party": "EDU", "photoUrl": "https://..." }` cadastra candidatura.
