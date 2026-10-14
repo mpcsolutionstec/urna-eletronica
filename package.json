@@ -1,0 +1,13 @@
+{
+  "name": "urna-simulada-educacional",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["api", "web"],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w api\" \"npm run dev -w web\"",
+    "dev:api": "npm run dev -w api",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}

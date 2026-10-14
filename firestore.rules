@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // O acesso a este protótipo ocorre exclusivamente pelo backend Admin SDK.
+    // Regras não substituem IAM: o Admin SDK ignora as Security Rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
