@@ -2,7 +2,7 @@
   "name": "urna-simulada-api",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "node --watch src/index.js", "start": "node src/index.js" },
+  "scripts": { "dev": "node --watch src/index.js", "start": "node src/index.js", "admin:hash": "node scripts/hash-admin-password.js" },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

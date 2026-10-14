@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { db, FieldValue } from './firestore.js';
-import { canonicalJson, hmac, randomToken, secureEqual, sha256, validCpf, requireKeys } from './security.js';
+import { canonicalJson, createAdminSession, hmac, passwordMatches, randomToken, secureEqual, sha256, validCpf, verifyAdminSession, requireKeys } from './security.js';
 
 requireKeys();
 const app = express();
@@ -15,6 +15,7 @@ app.use(helmet());
 app.use(cors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173' }));
 app.use(express.json({ limit: '32kb' }));
 app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { error: 'Muitas tentativas. Tente novamente em 15 minutos.' } });
 
 const api = express.Router();
 const elections = db.collection('elections');
@@ -29,19 +30,29 @@ const integrityKey = () => process.env.INTEGRITY_HMAC_KEY;
 const cpfId = (cpf) => hmac(cpfKey(), String(cpf).replace(/\D/g, ''));
 const candidateId = (electionId, office, number) => sha256(JSON.stringify([electionId, office, number]));
 
-function mesario(req, res, next) {
+function adminAuth(req, res, next) {
   const supplied = req.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
-  if (!secureEqual(supplied, process.env.MESARIO_API_KEY)) return res.status(401).json({ error: 'Acesso não autorizado.' });
+  if (!verifyAdminSession(supplied, process.env.ADMIN_SESSION_KEY)) return res.status(401).json({ error: 'Sessão administrativa inválida ou expirada.' });
   next();
 }
 const audit = (event, detail = {}) => logs.add({ event, detail, at: FieldValue.serverTimestamp() });
 const idParam = z.string().min(1).max(100);
 
 api.get('/health', (_req, res) => res.json({ status: 'ok', mode: 'simulacao-educacional' }));
-api.get('/admin/session', mesario, (_req, res) => res.json({ status: 'authenticated', mode: 'demonstracao' }));
+api.post('/auth/login', loginLimiter, async (req, res) => {
+  const parsed = z.object({ username: z.string().min(1).max(100), password: z.string().min(1).max(200) }).safeParse(req.body);
+  const usernameMatches = parsed.success && secureEqual(parsed.data.username, process.env.ADMIN_USERNAME);
+  const passwordMatchesAdmin = passwordMatches(parsed.success ? parsed.data.password : '', process.env.ADMIN_PASSWORD_HASH);
+  if (!usernameMatches || !passwordMatchesAdmin) {
+    return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+  }
+  await audit('admin_login');
+  res.json({ token: createAdminSession(process.env.ADMIN_USERNAME, process.env.ADMIN_SESSION_KEY), expiresInSeconds: 3600 });
+});
+api.get('/auth/session', adminAuth, (_req, res) => res.json({ status: 'authenticated', role: 'admin' }));
 
-// Cadastro administrativo: protegido por credencial do mesário (demo; em produção use RBAC/OIDC).
-api.post('/admin/elections', mesario, async (req, res) => {
+// Todas as operações de cadastro e liberação são exclusivas da conta de administrador.
+api.post('/admin/elections', adminAuth, async (req, res) => {
   const parsed = z.object({ name: z.string().min(1).max(120), offices: z.array(z.string().min(1).max(60)).min(1).max(12).default(['Vereador']), status: z.literal('draft').default('draft') }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos.' });
   const ref = await elections.add({ ...parsed.data, chainHead: '0'.repeat(64), voteCount: 0, createdAt: FieldValue.serverTimestamp() });
@@ -49,7 +60,7 @@ api.post('/admin/elections', mesario, async (req, res) => {
   res.status(201).json({ id: ref.id });
 });
 
-api.post('/admin/voters', mesario, async (req, res) => {
+api.post('/admin/voters', adminAuth, async (req, res) => {
   const parsed = z.object({ electionId: idParam, cpf: z.string(), name: z.string().min(1).max(120) }).safeParse(req.body);
   if (!parsed.success || !validCpf(parsed.data?.cpf)) return res.status(400).json({ error: 'CPF ou dados inválidos.' });
   const ref = voters.doc(cpfId(parsed.data.cpf));
@@ -66,7 +77,7 @@ api.post('/admin/voters', mesario, async (req, res) => {
   res.status(201).json({ status: 'cadastrado' });
 });
 
-api.post('/admin/candidates', mesario, async (req, res) => {
+api.post('/admin/candidates', adminAuth, async (req, res) => {
   const parsed = z.object({ electionId: idParam, office: z.string().min(1).max(60), number: z.string().regex(/^\d{2,5}$/), name: z.string().min(1).max(120), party: z.string().min(1).max(40), photoUrl: z.string().url().optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Dados do candidato inválidos.' });
   const ref = candidates.doc(candidateId(parsed.data.electionId, parsed.data.office, parsed.data.number));
@@ -82,7 +93,7 @@ api.post('/admin/candidates', mesario, async (req, res) => {
   res.status(201).json({ id: ref.id });
 });
 
-api.patch('/admin/elections/:id', mesario, async (req, res) => {
+api.patch('/admin/elections/:id', adminAuth, async (req, res) => {
   const parsed = z.object({ status: z.enum(['open', 'closed']) }).safeParse(req.body);
   if (!parsed.success || !idParam.safeParse(req.params.id).success) return res.status(400).json({ error: 'Dados inválidos.' });
   const ref = elections.doc(req.params.id);
@@ -110,7 +121,7 @@ api.get('/elections/:id', async (req, res) => {
 });
 
 // Libera um eleitor e entrega um token de uso único. O CPF não é guardado no token nem nos logs.
-api.post('/mesario/release', mesario, async (req, res) => {
+api.post('/admin/release', adminAuth, async (req, res) => {
   const parsed = z.object({ electionId: idParam, cpf: z.string() }).safeParse(req.body);
   if (!parsed.success || !validCpf(parsed.data?.cpf)) return res.status(400).json({ error: 'CPF ou eleição inválidos.' });
   const { electionId, cpf } = parsed.data;
@@ -208,7 +219,7 @@ async function buildBulletin(electionId) {
   return { ...body, integrity: hmac(integrityKey(), JSON.stringify(body)) };
 }
 
-api.get('/elections/:id/bulletin', mesario, async (req, res) => {
+api.get('/elections/:id/bulletin', adminAuth, async (req, res) => {
   try { res.json(await buildBulletin(req.params.id)); }
   catch (err) { res.status(err.status ?? 500).json({ error: err.status ? err.message : 'Falha ao gerar boletim.' }); }
 });
