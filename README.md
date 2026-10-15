@@ -1,64 +1,74 @@
-# Urna Simulada — projeto educacional
+# Urna simulada — Supabase
 
-Aplicação demonstrativa para estudar interfaces, APIs e controles de integridade. **Não é uma urna oficial nem segura para eleições reais.** A implementação não oferece sigilo eleitoral comprovável, resistência a administrador malicioso, operação offline controlada, auditoria independente ou certificação.
+Aplicação de demonstração educacional. Não é uma urna oficial, não fornece sigilo eleitoral comprovável e não deve ser usada em eleições reais.
 
 ## Arquitetura
 
-- `web/`: React + Vite; interface de urna responsiva e modo `?demo=1` sem persistência.
-- `api/`: Node.js + Express; validação com Zod, cabeçalhos Helmet, limitação básica de requisições e Firebase Admin.
-- Firestore: persistência em transações; credenciais administrativas somente no servidor via Application Default Credentials.
-- `audit_logs`: trilha administrativa minimizada; nunca incluir CPF ou token nesses eventos.
+- `web/`: React + Vite para a urna e o painel em `/?admin=1`.
+- `api/`: Node.js + Express, validação Zod, Helmet, limitação de tentativas e autenticação administrativa.
+- `supabase/migrations/`: esquema PostgreSQL, RPCs transacionais e RLS. A API usa `@supabase/supabase-js` com uma chave secreta apenas no servidor.
+
+O GitHub Pages hospeda apenas o front-end estático. Para cadastros e votação persistentes, a API Express precisa estar em um serviço de backend com HTTPS. Configure a variável de repositório `VITE_API_URL` com a URL pública da API para o workflow do Pages.
+
+## Configuração do Supabase
+
+1. No painel do projeto `kpevvdhvnzkontwcvwyd`, abra **SQL Editor** e execute o conteúdo de `supabase/migrations/20261015000000_urna_schema.sql`.
+2. Em **Project Settings → API Keys**, crie/rotacione a chave `sb_secret_...` que fica somente no backend. A chave compartilhada em conversa deve ser rotacionada. Nunca a coloque no navegador, em `VITE_*`, no GitHub Pages ou no Git.
+3. Copie `.env.example` para `.env` e configure `SUPABASE_PROJECT_ID`, `SUPABASE_SECRET_KEY`, `ADMIN_USERNAME`, o hash da senha e três segredos aleatórios diferentes, cada um com pelo menos 32 caracteres.
+4. Gere o hash administrativo com `npm run admin:hash -w api` e informe a senha quando solicitado. Guarde apenas o valor `salt:hash` em `ADMIN_PASSWORD_HASH`.
+5. Mantenha RLS habilitado e sem permissões para `anon`/`authenticated`. O SQL concede acesso às tabelas e RPCs apenas a `service_role`; não crie políticas públicas para essas tabelas.
 
 ## Executar localmente
 
-1. Instale Node.js 20 ou superior e execute `npm install` na raiz.
-2. Copie `.env.example` para `.env`, defina três segredos aleatórios distintos com pelo menos 32 caracteres e configure o usuário administrativo. Gere o hash da senha com `npm run admin:hash -w api` em um terminal interativo e copie a linha `ADMIN_PASSWORD_HASH=...` para `.env`; a senha digitada fica oculta e não é salva em texto puro.
-3. Configure Application Default Credentials do Firebase Admin (ou `GOOGLE_APPLICATION_CREDENTIALS` apontando para uma chave local não versionada). Habilite o Firestore no projeto.
-4. Publique `firestore.rules` no projeto com `firebase deploy --only firestore:rules` (o SDK Admin usa IAM e ignora essas regras; elas bloqueiam acesso direto do navegador).
-5. Rode `npm run dev`. A interface estará em `http://localhost:5173`; a API, em `http://localhost:4000/api`.
-6. Para testar a interface isolada, abra `http://localhost:5173/?demo=1`. Esse modo usa candidatos fictícios e não envia votos.
+No PowerShell, na raiz do projeto:
 
-O `api` usa o `FIREBASE_PROJECT_ID` fornecido no `.env.example`. A configuração `apiKey` do Firebase Web não é uma credencial administrativa e não deve ser usada como autenticação. Nunca coloque service account, segredos HMAC ou chave do mesário no navegador/repositório.
+```powershell
+Copy-Item .env.example .env
+npm install
+npm run dev
+```
 
-## Fluxo e rotas
+A aplicação fica em `http://localhost:5173`, o painel em `http://localhost:5173/?admin=1` e a API em `http://localhost:4000/api`. Configure `WEB_ORIGIN=http://localhost:5173` no `.env` para liberar o acesso local. No ambiente de hospedagem, defina as variáveis do `.env.example` no gerenciador de segredos do provedor e ajuste `WEB_ORIGIN` para a origem exata do front-end.
 
-O painel administrativo fica em `http://localhost:5173/?admin=1`. Somente as credenciais `ADMIN_USERNAME` e `ADMIN_PASSWORD_HASH` definidas no backend conseguem entrar; não há cadastro público de administradores. O login retorna um token assinado de sessão válido por uma hora. Rotas de cadastro, liberação e boletim exigem `Authorization: Bearer <token-da-sessao>` e a rota de login limita tentativas.
+## Operações disponíveis
 
-O painel permite cadastrar eleitores e candidatos, criar/abrir/encerrar pleitos, liberar token de votação e consultar/baixar o BU. A urna fica em `http://localhost:5173/`; para modo desconectado, use `?demo=1`.
+O painel permite criar, listar, abrir, encerrar e remover eleições em rascunho; cadastrar, listar, editar e remover eleitores e candidatos; liberar a urna por CPF; e gerar/baixar o boletim JSON. Edição e remoção de eleitores/candidatos só são permitidas enquanto o pleito está em rascunho. Fotos são referenciadas por URL HTTPS.
 
-O workflow `.github/workflows/pages.yml` publica automaticamente o modo urna demonstrativo em `https://mpcsolutionstec.github.io/urna-eletronica/` após cada push em `main`. GitHub Pages hospeda somente o front-end estático; para o login e cadastros online, hospede a API separadamente, configure `VITE_API_URL` como uma variável do repositório e `WEB_ORIGIN=https://mpcsolutionstec.github.io` no backend. Sem essa URL, o painel exibe que a API não está configurada.
+Rotas administrativas exigem `Authorization: Bearer <sessão>`:
 
-1. `POST /api/auth/login` `{ "username": "...", "password": "..." }` retorna o token de sessão administrativa.
-2. Com o token, `POST /api/admin/elections` `{ "name": "Demonstração", "offices": ["Deputado", "Governador"] }` cria pleito em rascunho. Se `offices` for omitido, usa `Vereador`.
-3. `POST /api/admin/voters` `{ "electionId": "...", "cpf": "...", "name": "Eleitor de teste" }` registra eleitor; o CPF deve passar nos dígitos verificadores.
-4. `POST /api/admin/candidates` `{ "electionId": "...", "office": "Vereador", "number": "12345", "name": "Candidato Exemplo", "party": "EDU", "photoUrl": "https://..." }` cadastra candidatura.
-5. `PATCH /api/admin/elections/:id` `{ "status": "open" }` abre a votação.
-6. `POST /api/admin/release` `{ "electionId": "...", "cpf": "..." }` libera um token temporário para informar na urna.
-7. A urna consulta `GET /api/elections/:id` e `GET /api/elections/:id/candidates`. `POST /api/vote` `{ "electionId": "...", "token": "...", "office": "Deputado", "choice": "candidate", "candidateNumber": "12345" }`. `choice` aceita `candidate`, `blank` ou `null`. O mesmo token pode registrar cada cargo uma vez; a interface avança na ordem configurada e finaliza após o último.
-8. `PATCH /api/admin/elections/:id` `{ "status": "closed" }` encerra pleito e retorna o BU; também disponível em `GET /api/elections/:id/bulletin`.
+- `POST /api/auth/login`, `GET /api/auth/session`
+- `/api/admin/elections` — GET, POST; `/:id` — PATCH, DELETE
+- `/api/admin/voters` — GET, POST; `/:id` — PATCH, DELETE
+- `/api/admin/candidates` — GET, POST; `/:id` — PATCH, DELETE
+- `POST /api/admin/release`
+- `GET /api/elections/:id/bulletin` (sessão administrativa)
 
-**Atenção:** essa autenticação de uma conta é voltada a uma demonstração local. Use HTTPS no backend, armazene os segredos no gerenciador de segredos do provedor e implemente MFA/gestão de acesso antes de qualquer uso fora de testes. O encerramento bloqueia novos votos e gera o boletim.
+A urna usa `GET /api/elections/:id`, `GET /api/elections/:id/candidates` e `POST /api/vote`. Cada liberação recebe token aleatório temporário. A transação SQL confere o vínculo do token com a eleição, validade, cargo e voto anterior antes de inserir a cédula.
 
-## Modelo Firestore
+## Modelo de dados
 
-| Coleção | Documento/campos | Observação |
-|---|---|---|
-| `elections` | nome, status, `voteCount`, `chainHead`, datas | Cabeça do encadeamento e estado do pleito |
-| `voters` | ID = HMAC(CPF), nome, data de cadastro | CPF em claro não é persistido; HMAC reduz exposição direta |
-| `participation` | ID = HMAC(pleito + CPF), `electionId`, chave pseudônima do eleitor, `votedOffices`, `voted` | Controle de comparecimento por pleito e por cargo |
-| `candidates` | pleito, cargo, número, nome, partido, foto | Dados públicos da candidatura |
-| `voter_releases` | ID = SHA-256(token), pleito, chave pseudônima de participação, cargos usados, expiração | Token de autorização; não é armazenado em claro |
-| `ballots` | pleito, cargo, escolha, número opcional, nonce, sequência, digest, assinatura | Não tem campo de CPF/eleitor/token |
-| `audit_logs` | evento, detalhes minimizados, data | Não registrar escolhas, CPF ou token |
+| Tabela | Conteúdo |
+|---|---|
+| `elections` | Pleito, cargos, estado, contador e cabeça da cadeia |
+| `voters` | Nome e HMAC do CPF (não o CPF em claro) |
+| `participation` | Vínculo eleitor/pleito e status de comparecimento |
+| `candidates` | Cargo, número, nome, partido e URL da foto |
+| `voter_releases` | Hash do token, vínculo, cargos usados e expiração |
+| `ballots` | Escolha, sequência, hash anterior, digest e HMAC; sem CPF/ID/token do eleitor |
+| `audit_logs` | Eventos administrativos minimizados |
+| `bulletins` | JSON e HMAC do boletim encerrado |
 
-## Segurança demonstrada e limites
+## Segurança e limites
 
-- **CPF:** validação de formato e dígitos verificadores; a identificação documental é um HMAC com segredo do servidor em vez do CPF bruto. O nome continua dado pessoal e deve ser minimizado/retido pelo menor tempo necessário.
-- **Prevenção de repetição:** a gravação usa transação Firestore que verifica pleito aberto, cargo ainda não votado e eleitor ainda não concluiu o pleito; registra cédula e marca eleitor/token como usados para aquele cargo na mesma transação. Concorrência é reavaliada pelo Firestore. O token expira em dez minutos e não pode votar novamente em um cargo já registrado.
-- **Separação lógica:** cédula não carrega identificador eleitoral. Entretanto, a transação conjunta, os horários, sequência e metadados podem permitir correlação. Firestore e operadores privilegiados podem observar relações temporais; portanto isso **não prova anonimato**.
-- **Integridade:** cada voto inclui hash do voto e hash anterior, com HMAC-SHA-256 usando chave do servidor; a cabeça fica no pleito. O BU tem HMAC para detectar alteração por quem não possui a chave. SHA/HMAC não substitui assinatura assimétrica nem auditoria independente. Uma conta privilegiada ou chave comprometida ainda pode adulterar dados.
-- **Abstenções:** estimadas como participações cadastradas para o pleito menos eleitores que concluíram todos os cargos. O total de votos do BU agrega cédulas de todos os cargos; os subtotais são apresentados em `byOffice`.
-- **Admin:** senha não fica em texto puro; `scrypt` deriva e compara o hash, o login tem limitação de tentativas e as rotas administrativas exigem token HMAC com validade de uma hora. O botão “Sair” remove o token do estado da página; tokens já emitidos seguem válidos até expirar. Para uso além da demonstração, adicione MFA, revogação server-side de sessões, gestão de múltiplos administradores, monitoramento e rotação de segredos.
-- **Hardening necessário:** regras IAM/Firestore de mínimo privilégio, trilha append-only externa, backup testado, revisão de privacidade, monitoramento, procedimento de auditoria e testes de carga/concorrência.
+- O CPF é validado e transformado em HMAC com segredo do servidor antes de consultar/gravar. Não é criptografia reversível nem anonimização: nomes, tempos e acessos administrativos continuam sensíveis.
+- O registro da cédula e a atualização de participação/token/cabeça da cadeia acontecem numa função PostgreSQL transacional. Chaves únicas e bloqueios de linha ajudam a impedir repetição concorrente.
+- Cédulas não contêm identificadores diretos do eleitor. A sequência temporal e o acesso privilegiado ao banco ainda podem permitir correlação; esta separação não prova sigilo eleitoral.
+- Cada voto encadeia SHA-256 ao digest anterior e recebe HMAC com segredo do servidor. O boletim recalcula a cadeia e assina o resumo. Isso detecta alterações sem a chave, mas não impede um operador com chave/acesso privilegiado de adulterar dados. Não é blockchain pública nem assinatura digital assimétrica.
+- A chave secreta Supabase ignora RLS; por isso fica apenas no backend. Mantenha variáveis de ambiente fora do Git, use HTTPS e rotacione qualquer segredo exposto.
+- O login de usuário/senha e sessão HMAC é simplificado para demonstração. Para produção seriam necessários provedor de identidade/MFA, gestão e revogação robusta de sessões, monitoramento e auditoria independente.
 
-Este protótipo é intencionalmente limitado a ensino e testes controlados. Não reutilize seus componentes como sistema eleitoral real.
+## Deploy
+
+Hospede `api/` num serviço compatível com Node.js, configure as variáveis de `.env.example` e a porta `PORT`. Configure `WEB_ORIGIN` para a origem do Pages. Em GitHub, crie a variável **Settings → Secrets and variables → Actions → Variables → New repository variable** com nome `VITE_API_URL` e valor base da API, incluindo `https://` e sem `/api`; execute novamente o workflow **Deploy GitHub Pages**.
+
+O front-end público do Pages não recebe a chave secreta do Supabase. O endereço do painel será `https://mpcsolutionstec.github.io/urna-eletronica/?admin=1` após a publicação do workflow.

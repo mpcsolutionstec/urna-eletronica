@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api';
+const API_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/$/, '').replace(/\/api$/, '');
+const API = `${API_ORIGIN}/api`;
 const DEMO_CANDIDATES = [
   { office: 'Vereador', number: '12345', name: 'Ana Exemplo', party: 'EDU', photoUrl: '' },
   { office: 'Vereador', number: '54321', name: 'Bruno Demonstração', party: 'SIM', photoUrl: '' },
