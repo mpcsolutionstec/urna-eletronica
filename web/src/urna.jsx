@@ -9,16 +9,22 @@ const DEMO_CANDIDATES = [
 ];
 const DEMO_OFFICES = ['Vereador', 'Prefeito'];
 const demo = new URLSearchParams(location.search).get('demo') === '1' || import.meta.env.VITE_DEMO_MODE === 'true';
-const RELEASE_STORAGE_KEY = 'urna-kiosk-release';
-
-function readActiveRelease() {
+function readMobileRelease() {
   try {
-    const release = JSON.parse(localStorage.getItem(RELEASE_STORAGE_KEY) || 'null');
-    if (!release?.electionId || !release?.token || release.expiresAt <= Date.now()) {
-      localStorage.removeItem(RELEASE_STORAGE_KEY);
+    const electionId = new URLSearchParams(location.search).get('election') || '';
+    if (!electionId) return null;
+    const storageKey = `urna-vote-${electionId}`;
+    const linkedToken = new URLSearchParams(location.hash.slice(1)).get('vote');
+    if (linkedToken) {
+      sessionStorage.setItem(storageKey, JSON.stringify({ token: linkedToken, expiresAt: Date.now() + 10 * 60_000 }));
+      history.replaceState(null, '', `${location.pathname}${location.search}`);
+    }
+    const release = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+    if (!release?.token || release.expiresAt <= Date.now()) {
+      sessionStorage.removeItem(storageKey);
       return null;
     }
-    return release;
+    return { electionId, token: release.token, storageKey };
   } catch { return null; }
 }
 
@@ -35,7 +41,7 @@ function prepareAudio() {
 }
 
 export default function Urna() {
-  const [kioskRelease, setKioskRelease] = useState(() => demo ? null : readActiveRelease());
+  const [kioskRelease, setKioskRelease] = useState(() => demo ? null : readMobileRelease());
   const electionId = kioskRelease?.electionId ?? '';
   const token = kioskRelease?.token ?? '';
   const released = demo || Boolean(kioskRelease);
@@ -47,22 +53,6 @@ export default function Urna() {
   const [busy, setBusy] = useState(false);
   const [candidates, setCandidates] = useState(demo ? DEMO_CANDIDATES : []);
   const [ballotReady, setBallotReady] = useState(demo);
-  useEffect(() => {
-    if (demo) return;
-    const syncRelease = () => {
-      const nextRelease = readActiveRelease();
-      setKioskRelease(nextRelease);
-      setFinished(false);
-      setEntry('');
-      setOffice('');
-      setMessage(nextRelease ? 'Urna liberada pelo mesario.' : 'Aguardando liberacao do mesario.');
-    };
-    const handleStorage = (event) => {
-      if (event.key === RELEASE_STORAGE_KEY || event.key === null) syncRelease();
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
   useEffect(() => {
     if (demo || !electionId) {
       if (!demo) { setOffices([]); setCandidates([]); setBallotReady(false); }
@@ -132,7 +122,10 @@ export default function Urna() {
       const nextOffice = offices[offices.indexOf(office) + 1];
       if (nextOffice) { setOffice(nextOffice); resetField(); setMessage(`Voto confirmado. Próximo cargo: ${nextOffice}.`); }
       else { setFinished(true); setMessage(choice === 'blank' ? 'Voto em branco confirmado' : choice === 'null' ? 'Voto nulo confirmado' : 'Voto confirmado'); }
-      if (!nextOffice && !demo) { localStorage.removeItem(RELEASE_STORAGE_KEY); setKioskRelease(null); }
+      if (!nextOffice && !demo) {
+        sessionStorage.removeItem(kioskRelease.storageKey);
+        setKioskRelease(null);
+      }
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
@@ -142,14 +135,14 @@ export default function Urna() {
     <header className="topbar"><div><span className="brand-mark">V</span><span>VOTAÇÃO <b>SIMULADA</b></span></div><span className="status"><i /> AMBIENTE EDUCACIONAL</span></header>
     <section className="setup" aria-label="Status da simulacao">
       <label>Cargo <select value={office} disabled><option value="" disabled>Selecione</option>{offices.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <span className="demo-note">{demo ? 'Modo demonstracao local - voto nao gravado' : released ? (ballotReady ? 'Urna liberada pelo mesario' : 'Carregando votacao...') : 'Aguardando liberacao do mesario'}</span>
+      <span className="demo-note">{demo ? 'Modo demonstracao local - voto nao gravado' : released ? (ballotReady ? 'Link de votacao validado' : 'Carregando votacao...') : 'Abra o link individual enviado pelo mesario'}</span>
     </section>
     <section className="machine">
       <div className="display-panel">
         <div className="display-head"><div><small>ELEIÇÕES • SIMULAÇÃO</small><h1>SEU VOTO<br/>PARA <strong>{released ? office.toUpperCase() : 'AGUARDANDO'}</strong></h1></div><div className="seal">BR<br/><b>VOTO</b></div></div>
-        <div className="instruction">{released ? 'Digite o numero do seu candidato:' : 'Aguarde a liberacao do mesario.'}</div>
+        <div className="instruction">{released ? 'Digite o numero do seu candidato:' : 'Abra o link individual enviado pelo mesario.'}</div>
         <div className="ballot-area">
-          {finished ? <div className="fim">FIM</div> : !released ? <p className="help-text">Aguardando liberacao do mesario.</p> : <>
+          {finished ? <div className="fim">FIM</div> : !released ? <p className="help-text">Solicite ao mesario o link individual para votar.</p> : <>
             <div className="number-row"><span>Número:</span><div className="digits">{Array.from({ length: numberLength }, (_, i) => <b key={i} className={entry[i] ? 'filled' : ''}>{entry[i] ?? ''}</b>)}</div></div>
             {entry.length > 0 && <div className="candidate-info">
               <div className="portrait">{selected?.photoUrl ? <img src={selected.photoUrl} alt={`Foto de ${selected.name}`} /> : <span>{selected ? selected.name.split(' ').map((x) => x[0]).slice(0, 2).join('') : '?'}</span>}</div>

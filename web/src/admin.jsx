@@ -4,7 +4,6 @@ import './admin.css';
 const API_ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '').replace(/\/api$/, '');
 const API = API_ORIGIN ? `${API_ORIGIN}/api` : '';
 const digits = (value) => value.replace(/\D/g, '');
-const RELEASE_STORAGE_KEY = 'urna-kiosk-release';
 function validCpf(raw) {
   const value = digits(raw);
   if (value.length !== 11 || /^(\d)\1+$/.test(value)) return false;
@@ -30,6 +29,7 @@ export default function Admin() {
   const [voterName, setVoterName] = useState('');
   const [candidate, setCandidate] = useState({ office: 'Vereador', number: '', name: '', party: '', photoUrl: '' });
   const [releaseCpf, setReleaseCpf] = useState('');
+  const [releaseLink, setReleaseLink] = useState('');
   const [bulletin, setBulletin] = useState(null);
   const [status, setStatus] = useState(API ? 'Entre com a conta administrativa.' : 'Configure VITE_API_URL com a URL pública da API.');
   const [working, setWorking] = useState(false);
@@ -72,15 +72,6 @@ export default function Admin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   useEffect(() => { if (token && electionId) refreshRecords().catch((error) => setStatus(error.message)); }, [token, electionId]);
-  useEffect(() => {
-    const handleStorage = (event) => {
-      if (event.key === RELEASE_STORAGE_KEY && !event.newValue) {
-        setStatus('Voto concluido. Informe o CPF da proxima pessoa para liberar a urna.');
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
 
   async function login() {
     const result = await request('/auth/login', { method: 'POST', body: JSON.stringify({ username: username.trim(), password }) });
@@ -91,7 +82,7 @@ export default function Admin() {
     const normalized = offices.split(',').map((item) => item.trim()).filter(Boolean);
     if (!name.trim() || !normalized.length) throw new Error('Informe nome e ao menos um cargo.');
     const result = await request('/admin/elections', { method: 'POST', body: JSON.stringify({ name: name.trim(), offices: normalized }) });
-    await refreshElections(); setElectionId(result.id); setBulletin(null); setStatus(`Pleito criado: ${result.id}`);
+    await refreshElections(); setElectionId(result.id); setBulletin(null); setReleaseLink(''); setStatus(`Pleito criado: ${result.id}`);
   }
   async function setElectionStatus(value) {
     const result = await request(`/admin/elections/${electionId}`, { method: 'PATCH', body: JSON.stringify({ status: value }) });
@@ -133,13 +124,31 @@ export default function Admin() {
   }
   async function release() {
     if (!validCpf(releaseCpf)) throw new Error('CPF invalido.');
-    let current = null;
-    try { current = JSON.parse(localStorage.getItem(RELEASE_STORAGE_KEY) || 'null'); } catch { localStorage.removeItem(RELEASE_STORAGE_KEY); }
-    if (current?.expiresAt > Date.now()) throw new Error('Ja existe uma liberacao ativa. Conclua o voto na urna antes de liberar a proxima pessoa.');
+    setReleaseLink('');
     const result = await request('/admin/release', { method: 'POST', body: JSON.stringify({ electionId, cpf: digits(releaseCpf) }) });
-    localStorage.setItem(RELEASE_STORAGE_KEY, JSON.stringify({ electionId, token: result.token, expiresAt: Date.now() + result.expiresInMinutes * 60_000 }));
+    const voteUrl = new URL(import.meta.env.BASE_URL || '/', location.origin);
+    voteUrl.searchParams.set('election', electionId);
+    voteUrl.hash = new URLSearchParams({ vote: result.token }).toString();
+    setReleaseLink(voteUrl.toString());
     setReleaseCpf('');
-    setStatus('Urna liberada. A pessoa pode votar na aba da urna aberta neste navegador.');
+    setStatus(`Link individual gerado; expira em ${result.expiresInMinutes} minutos.`);
+  }
+  async function copyReleaseLink() {
+    try {
+      await navigator.clipboard.writeText(releaseLink);
+      setStatus('Link copiado. Envie somente para a pessoa que vai votar.');
+    } catch {
+      setStatus('Copie o link exibido abaixo e envie para a pessoa que vai votar.');
+    }
+  }
+  async function shareReleaseLink() {
+    if (!navigator.share) return copyReleaseLink();
+    try {
+      await navigator.share({ title: 'Acesso para votação simulada', url: releaseLink });
+      setStatus('Link compartilhado. Ele autoriza um voto e expira em 10 minutos.');
+    } catch (error) {
+      if (error.name !== 'AbortError') await copyReleaseLink();
+    }
   }
   async function loadBulletin() { setBulletin(await request(`/elections/${electionId}/bulletin`)); setStatus('Boletim verificado e carregado.'); }
   function downloadBulletin() {
@@ -151,8 +160,8 @@ export default function Admin() {
     {!token ? <section className="admin-login"><div className="admin-kicker">ACESSO RESTRITO AO ADMINISTRADOR</div><h1>Entrar no painel</h1><p>Use as credenciais administrativas configuradas no servidor da API.</p><label>Usuário<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" onKeyDown={(event) => { if (event.key === 'Enter') run(login); }} /></label><button className="admin-primary" onClick={() => run(login)} disabled={working || !API || !username || !password}>Acessar</button><div className="admin-status">{status}</div></section> : <>
       <div className="admin-welcome"><div><small>BACKEND: SUPABASE · API AUTENTICADA</small><h1>Cadastros e liberação da urna</h1></div><button className="admin-secondary" onClick={() => run(logout)}>Sair</button></div>
       <div className="admin-grid">
-        <section className="admin-card"><small>01 / PLEITO</small><h2>Eleição</h2><label>Nome<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Cargos, separados por vírgula<input value={offices} onChange={(event) => setOffices(event.target.value)} /></label><button className="admin-primary" disabled={working} onClick={() => run(createElection)}>Criar pleito</button><label>Pleito selecionado<select value={electionId} onChange={(event) => { setElectionId(event.target.value); setBulletin(null); }}><option value="">Selecione</option>{elections.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.status}</option>)}</select></label>{selectedElection && <p className="admin-status">{selectedElection.name} — {selectedElection.status}</p>}<div className="button-row"><button className="admin-secondary" disabled={working || selectedElection?.status !== 'draft'} onClick={() => run(() => setElectionStatus('open'))}>Abrir votação</button><button className="admin-danger" disabled={working || selectedElection?.status !== 'open'} onClick={() => run(() => setElectionStatus('closed'))}>Encerrar e apurar</button></div><button className="admin-danger" disabled={working || selectedElection?.status !== 'draft'} onClick={() => run(removeElection)}>Excluir rascunho</button></section>
-        <section className="admin-card"><small>02 / ELEITORADO</small><h2>Cadastrar eleitor</h2><label>Nome<input value={voterName} onChange={(event) => setVoterName(event.target.value)} /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" /></label><p className="privacy-note">O backend grava um HMAC do CPF, sem armazenar o número em texto puro. A chave HMAC fica somente no servidor.</p><button className="admin-primary" disabled={working || !electionId || selectedElection?.status !== 'draft'} onClick={() => run(addVoter)}>Cadastrar eleitor</button><div className="admin-divider"/><h2>Liberar voto</h2><label>CPF do eleitor<input value={releaseCpf} onChange={(event) => setReleaseCpf(event.target.value)} inputMode="numeric" autoComplete="off" /></label><button className="admin-secondary" disabled={working || !electionId || selectedElection?.status !== 'open'} onClick={() => run(release)}>Liberar urna para votar</button><p className="privacy-note">Mantenha a tela da urna aberta em outra aba deste mesmo navegador. A liberacao e enviada automaticamente; o token nao aparece para o eleitor.</p></section>
+        <section className="admin-card"><small>01 / PLEITO</small><h2>Eleição</h2><label>Nome<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Cargos, separados por vírgula<input value={offices} onChange={(event) => setOffices(event.target.value)} /></label><button className="admin-primary" disabled={working} onClick={() => run(createElection)}>Criar pleito</button><label>Pleito selecionado<select value={electionId} onChange={(event) => { setElectionId(event.target.value); setBulletin(null); setReleaseLink(''); }}><option value="">Selecione</option>{elections.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.status}</option>)}</select></label>{selectedElection && <p className="admin-status">{selectedElection.name} — {selectedElection.status}</p>}<div className="button-row"><button className="admin-secondary" disabled={working || selectedElection?.status !== 'draft'} onClick={() => run(() => setElectionStatus('open'))}>Abrir votação</button><button className="admin-danger" disabled={working || selectedElection?.status !== 'open'} onClick={() => run(() => setElectionStatus('closed'))}>Encerrar e apurar</button></div><button className="admin-danger" disabled={working || selectedElection?.status !== 'draft'} onClick={() => run(removeElection)}>Excluir rascunho</button></section>
+        <section className="admin-card"><small>02 / ELEITORADO</small><h2>Cadastrar eleitor</h2><label>Nome<input value={voterName} onChange={(event) => setVoterName(event.target.value)} /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" /></label><p className="privacy-note">O backend grava um HMAC do CPF, sem armazenar o número em texto puro. A chave HMAC fica somente no servidor.</p><button className="admin-primary" disabled={working || !electionId || selectedElection?.status !== 'draft'} onClick={() => run(addVoter)}>Cadastrar eleitor</button><div className="admin-divider"/><h2>Enviar acesso para votar</h2><label>CPF do eleitor cadastrado<input value={releaseCpf} onChange={(event) => setReleaseCpf(event.target.value)} inputMode="numeric" autoComplete="off" /></label><button className="admin-secondary" disabled={working || !electionId || selectedElection?.status !== 'open'} onClick={() => run(release)}>Gerar link para o celular</button>{releaseLink && <div className="token-result"><small>LINK INDIVIDUAL · EXPIRA EM 10 MINUTOS</small><input aria-label="Link individual de votacao" readOnly value={releaseLink} onFocus={(event) => event.target.select()} /><button className="admin-secondary" onClick={() => run(shareReleaseLink)}>Compartilhar link</button><button className="admin-secondary" onClick={() => run(copyReleaseLink)}>Copiar link para enviar ao eleitor</button><p className="privacy-note">Envie o link somente para o eleitor correspondente. Ele permite registrar um voto e expira em 10 minutos.</p></div>}</section>
         <section className="admin-card"><small>03 / CANDIDATURAS</small><h2>Cadastrar candidato</h2><label>Cargo<input value={candidate.office} onChange={(event) => setCandidate({ ...candidate, office: event.target.value })} /></label><label>Número<input value={candidate.number} onChange={(event) => setCandidate({ ...candidate, number: event.target.value })} inputMode="numeric" /></label><label>Nome<input value={candidate.name} onChange={(event) => setCandidate({ ...candidate, name: event.target.value })} /></label><label>Partido<input value={candidate.party} onChange={(event) => setCandidate({ ...candidate, party: event.target.value })} /></label><label>URL HTTPS da foto<input value={candidate.photoUrl} onChange={(event) => setCandidate({ ...candidate, photoUrl: event.target.value })} placeholder="https://…" /></label>{candidate.photoUrl && <img className="candidate-preview" src={candidate.photoUrl} alt="Prévia da foto do candidato" />}<button className="admin-primary" disabled={working || !electionId || selectedElection?.status !== 'draft'} onClick={() => run(addCandidate)}>Cadastrar candidatura</button></section>
       </div>
       {electionId && <div className="admin-grid"><section className="admin-card"><small>04 / ELEITORES CADASTRADOS · {voters.length}</small><h2>Eleitores</h2>{voters.map((row) => <div className="admin-record" key={row.id}><span>{row.name}<small>{row.voted ? 'Votou' : 'Ainda não votou'}</small></span><div><button className="admin-secondary" disabled={selectedElection?.status !== 'draft'} onClick={() => run(() => editVoter(row))}>Editar</button> <button className="admin-danger" disabled={selectedElection?.status !== 'draft'} onClick={() => run(() => deleteVoter(row))}>Excluir</button></div></div>)}</section><section className="admin-card"><small>05 / CANDIDATOS CADASTRADOS · {candidates.length}</small><h2>Candidatos</h2>{candidates.map((row) => <div className="admin-record" key={row.id}><span>{row.number} · {row.name}<small>{row.office} · {row.party}</small></span><div><button className="admin-secondary" disabled={selectedElection?.status !== 'draft'} onClick={() => run(() => editCandidate(row))}>Editar</button> <button className="admin-danger" disabled={selectedElection?.status !== 'draft'} onClick={() => run(() => deleteCandidate(row))}>Excluir</button></div></div>)}</section></div>}
