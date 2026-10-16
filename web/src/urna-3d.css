@@ -1,0 +1,130 @@
+/* Urna com volume, frisos e teclas em relevo. */
+.app-shell { perspective: 1500px; }
+
+.machine {
+  position: relative;
+  isolation: isolate;
+  transform: rotateX(.55deg);
+  transform-origin: center top;
+  background: linear-gradient(155deg, #697478 0%, #465156 10%, #2a3337 46%, #151d20 100%);
+  border: 1px solid #727d80;
+  border-radius: 23px;
+  padding: 28px;
+  gap: 30px;
+  box-shadow: 0 30px 42px #17232955, inset 2px 3px 0 #ffffff35, inset -3px -5px 9px #080e10;
+}
+
+.machine::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid #c2ccca24;
+  border-radius: 17px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.machine::after {
+  content: "";
+  position: absolute;
+  left: 17px;
+  right: 17px;
+  bottom: -11px;
+  height: 15px;
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(180deg, #20292c, #101618);
+  box-shadow: 0 9px 12px #10171938;
+  z-index: -2;
+}
+
+.display-panel {
+  border: 10px solid #465257;
+  border-radius: 14px;
+  background: #f7f8f5;
+  box-shadow: 0 8px 16px #050a0b70, inset 0 0 0 1px #cdd3d0, inset 0 3px 8px #0002;
+}
+
+.display-head {
+  background: linear-gradient(180deg, #eef0ec, #d7ddd7);
+  box-shadow: inset 0 1px 0 #fff;
+}
+
+.keypad-panel {
+  position: relative;
+  justify-content: flex-start;
+  border: 1px solid #697578;
+  border-radius: 17px;
+  padding: 18px 19px 21px;
+  background: linear-gradient(145deg, #505b5f, #303a3e 54%, #242d30);
+  box-shadow: inset 1px 2px 0 #d2d9d729, inset -2px -4px 8px #080d0e80, 0 8px 13px #080d0e66;
+}
+
+.keypad-brand {
+  color: #d1d9d7;
+  text-shadow: 0 1px 2px #080d0e;
+  padding: 1px 4px 14px;
+  border-bottom-color: #11191b;
+  margin-bottom: 18px;
+}
+
+.keys { padding: 3px 6px 0; gap: 12px; }
+
+.number-key {
+  height: 59px;
+  border: 1px solid #c9ceca;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff 0%, #f0f1ed 62%, #d4d8d2 100%);
+  color: #172124;
+  text-shadow: 0 1px 0 #fff;
+  font-weight: 600;
+  box-shadow: 0 6px 0 #858c88, 0 9px 12px #080d0e8c, inset 0 2px 0 #fff, inset 0 -2px 3px #747b764d;
+  transition: transform .08s ease, filter .15s ease, box-shadow .08s ease;
+}
+
+.number-key:hover:not(:disabled) { filter: brightness(1.04); }
+
+.number-key:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 1px 0 #858c88, 0 3px 5px #080d0e80, inset 0 1px 2px #89908b;
+}
+
+.action-keys { gap: 10px; margin-top: 30px; padding: 0 2px; }
+
+.action-keys button {
+  height: 59px;
+  border: 1px solid #11191b;
+  border-radius: 8px;
+  box-shadow: 0 6px 0 #11191b, 0 9px 12px #080d0e7d, inset 0 2px 0 #ffffff50;
+  transition: transform .08s ease, filter .15s ease, box-shadow .08s ease;
+}
+
+.action-keys button:hover:not(:disabled) { filter: brightness(1.08); }
+
+.action-keys button:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 1px 0 #11191b, 0 3px 5px #080d0e80, inset 0 1px 2px #0003;
+}
+
+.white-key { background: linear-gradient(180deg, #fff, #dedfd9); border-color: #b6bcb7; color: #182124; }
+.orange-key { background: linear-gradient(180deg, #f5b852, #d78320); color: #211b13; }
+.green-key { background: linear-gradient(180deg, #20a777, #086346); color: #fff; }
+.number-key:disabled, .action-keys button:disabled { cursor: not-allowed; filter: saturate(.45) brightness(.76); }
+.again { box-shadow: inset 0 1px 0 #ffffff20, 0 3px 0 #11191b; }
+
+@media (max-width: 760px) {
+  .machine {
+    transform: none;
+    border-radius: 19px;
+    padding: 16px 14px 19px;
+    box-shadow: 0 20px 30px #1723294d, inset 2px 3px 0 #ffffff35, inset -3px -5px 9px #080e10;
+  }
+  .machine::after { left: 12px; right: 12px; }
+  .keypad-panel { padding: 16px 14px 20px; }
+  .keys { gap: 11px; }
+  .number-key { height: 57px; }
+  .action-keys button { height: 56px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .number-key, .action-keys button { transition: none; }
+}

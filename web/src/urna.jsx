@@ -28,16 +28,16 @@ function readMobileRelease() {
   } catch { return null; }
 }
 
-let sharedAudioContext;
+const confirmationAudio = new Audio(`${import.meta.env.BASE_URL}som/som-da-urna.mp4`);
+confirmationAudio.preload = 'auto';
 
-function prepareAudio() {
+function playConfirmationSound() {
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return null;
-    sharedAudioContext ??= new AudioContextClass();
-    void sharedAudioContext.resume();
-    return sharedAudioContext;
-  } catch { return null; }
+    confirmationAudio.pause();
+    confirmationAudio.currentTime = 0;
+    const playback = confirmationAudio.play();
+    if (playback?.catch) playback.catch(() => {});
+  } catch { /* Browser audio can be disabled. */ }
 }
 
 export default function Urna() {
@@ -90,35 +90,18 @@ export default function Urna() {
   const knownPrefix = entry.length < 2 || officeCandidates.some((c) => c.number.startsWith(entry));
   const invalid = entry.length > 0 && !knownPrefix;
 
-  function tone(ctx) {
-    if (!ctx) return;
-    try {
-      // Cadência curta de bipes que recria o "pilili" para esta simulação.
-      [[740, 0, 0.09], [988, 0.12, 0.09], [784, 0.24, 0.22]].forEach(([frequency, delay, duration]) => {
-        const oscillator = ctx.createOscillator(); const gain = ctx.createGain();
-        oscillator.type = 'square';
-        oscillator.frequency.value = frequency; oscillator.connect(gain); gain.connect(ctx.destination);
-        gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
-        gain.gain.exponentialRampToValueAtTime(0.055, ctx.currentTime + delay + 0.008);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + duration);
-        oscillator.start(ctx.currentTime + delay); oscillator.stop(ctx.currentTime + delay + duration);
-      });
-    } catch { /* áudio pode estar desabilitado pelo navegador */ }
-  }
-
   function resetField() { setEntry(''); setMessage('Digite o número do candidato'); }
   async function confirm(choice = 'candidate') {
     if (choice === 'candidate' && (!selected || invalid)) { setMessage('Número incorreto. Tente novamente.'); return; }
     if (!demo && (!electionId || !token)) { setMessage('Aguardando liberacao do mesario.'); return; }
     if (!ballotReady) { setMessage('Carregando os dados da votacao. Aguarde.'); return; }
-    const audioContext = prepareAudio();
     setBusy(true);
     try {
       if (!demo) {
         const response = await fetch(`${API}/vote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ electionId, token, office, choice, ...(choice === 'candidate' ? { candidateNumber: entry } : {}) }) });
         const data = await response.json(); if (!response.ok) throw new Error(data.error ?? 'Falha ao votar.');
       }
-      tone(audioContext);
+      playConfirmationSound();
       const nextOffice = offices[offices.indexOf(office) + 1];
       if (nextOffice) { setOffice(nextOffice); resetField(); setMessage(`Voto confirmado. Próximo cargo: ${nextOffice}.`); }
       else { setFinished(true); setMessage(choice === 'blank' ? 'Voto em branco confirmado' : choice === 'null' ? 'Voto nulo confirmado' : 'Voto confirmado'); }
