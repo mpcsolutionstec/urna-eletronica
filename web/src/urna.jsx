@@ -9,6 +9,19 @@ const DEMO_CANDIDATES = [
 ];
 const DEMO_OFFICES = ['Vereador', 'Prefeito'];
 const demo = new URLSearchParams(location.search).get('demo') === '1' || import.meta.env.VITE_DEMO_MODE === 'true';
+const RELEASE_STORAGE_KEY = 'urna-kiosk-release';
+
+function readActiveRelease() {
+  try {
+    const release = JSON.parse(localStorage.getItem(RELEASE_STORAGE_KEY) || 'null');
+    if (!release?.electionId || !release?.token || release.expiresAt <= Date.now()) {
+      localStorage.removeItem(RELEASE_STORAGE_KEY);
+      return null;
+    }
+    return release;
+  } catch { return null; }
+}
+
 let sharedAudioContext;
 
 function prepareAudio() {
@@ -22,8 +35,10 @@ function prepareAudio() {
 }
 
 export default function Urna() {
-  const [electionId, setElectionId] = useState('');
-  const [token, setToken] = useState('');
+  const [kioskRelease, setKioskRelease] = useState(() => demo ? null : readActiveRelease());
+  const electionId = kioskRelease?.electionId ?? '';
+  const token = kioskRelease?.token ?? '';
+  const released = demo || Boolean(kioskRelease);
   const [office, setOffice] = useState('Vereador');
   const [offices, setOffices] = useState(demo ? DEMO_OFFICES : []);
   const [entry, setEntry] = useState('');
@@ -31,22 +46,52 @@ export default function Urna() {
   const [finished, setFinished] = useState(false);
   const [busy, setBusy] = useState(false);
   const [candidates, setCandidates] = useState(demo ? DEMO_CANDIDATES : []);
+  const [ballotReady, setBallotReady] = useState(demo);
   useEffect(() => {
-    if (demo || !electionId) { if (!demo) setOffices([]); return; }
-    let active = true;
-    fetch(`${API}/elections/${encodeURIComponent(electionId)}`)
-      .then(async (response) => { if (!response.ok) throw new Error('Eleição não encontrada.'); return response.json(); })
-      .then((data) => { if (active) { setOffices(data.offices ?? []); setOffice(data.offices?.[0] ?? ''); } })
-      .catch(() => { if (active) setOffices([]); });
-    return () => { active = false; };
-  }, [electionId]);
+    if (demo) return;
+    const syncRelease = () => {
+      const nextRelease = readActiveRelease();
+      setKioskRelease(nextRelease);
+      setFinished(false);
+      setEntry('');
+      setOffice('');
+      setMessage(nextRelease ? 'Urna liberada pelo mesario.' : 'Aguardando liberacao do mesario.');
+    };
+    const handleStorage = (event) => {
+      if (event.key === RELEASE_STORAGE_KEY || event.key === null) syncRelease();
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
   useEffect(() => {
-    if (demo || !electionId) { if (!demo) setCandidates([]); return; }
+    if (demo || !electionId) {
+      if (!demo) { setOffices([]); setCandidates([]); setBallotReady(false); }
+      return;
+    }
     let active = true;
-    fetch(`${API}/elections/${encodeURIComponent(electionId)}/candidates`)
-      .then(async (response) => { if (!response.ok) throw new Error('Não foi possível carregar os candidatos.'); return response.json(); })
-      .then((data) => { if (active) setCandidates(data); })
-      .catch(() => { if (active) setCandidates([]); });
+    setOffices([]);
+    setCandidates([]);
+    setBallotReady(false);
+    Promise.all([
+      fetch(`${API}/elections/${encodeURIComponent(electionId)}`).then(async (response) => {
+        if (!response.ok) throw new Error('Election could not be loaded.');
+        return response.json();
+      }),
+      fetch(`${API}/elections/${encodeURIComponent(electionId)}/candidates`).then(async (response) => {
+        if (!response.ok) throw new Error('Candidates could not be loaded.');
+        return response.json();
+      }),
+    ]).then(([election, nominees]) => {
+      if (!active) return;
+      setOffices(election.offices ?? []);
+      setOffice(election.offices?.[0] ?? '');
+      setCandidates(nominees);
+      setBallotReady(true);
+    }).catch(() => {
+      if (!active) return;
+      setMessage('Could not load the ballot. Ask the attendant for help.');
+      setBallotReady(false);
+    });
     return () => { active = false; };
   }, [electionId]);
   const officeCandidates = candidates.filter((c) => c.office === office);
@@ -74,7 +119,8 @@ export default function Urna() {
   function resetField() { setEntry(''); setMessage('Digite o número do candidato'); }
   async function confirm(choice = 'candidate') {
     if (choice === 'candidate' && (!selected || invalid)) { setMessage('Número incorreto. Tente novamente.'); return; }
-    if (!demo && (!electionId || !token)) { setMessage('Informe a eleição e o token liberado pelo mesário.'); return; }
+    if (!demo && (!electionId || !token)) { setMessage('Aguardando liberacao do mesario.'); return; }
+    if (!ballotReady) { setMessage('Carregando os dados da votacao. Aguarde.'); return; }
     const audioContext = prepareAudio();
     setBusy(true);
     try {
@@ -86,6 +132,7 @@ export default function Urna() {
       const nextOffice = offices[offices.indexOf(office) + 1];
       if (nextOffice) { setOffice(nextOffice); resetField(); setMessage(`Voto confirmado. Próximo cargo: ${nextOffice}.`); }
       else { setFinished(true); setMessage(choice === 'blank' ? 'Voto em branco confirmado' : choice === 'null' ? 'Voto nulo confirmado' : 'Voto confirmado'); }
+      if (!nextOffice && !demo) { localStorage.removeItem(RELEASE_STORAGE_KEY); setKioskRelease(null); }
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
@@ -93,18 +140,16 @@ export default function Urna() {
 
   return <main className="app-shell">
     <header className="topbar"><div><span className="brand-mark">V</span><span>VOTAÇÃO <b>SIMULADA</b></span></div><span className="status"><i /> AMBIENTE EDUCACIONAL</span></header>
-    <section className="setup" aria-label="Configuração da simulação">
-      <label>Eleição <input value={electionId} onChange={(e) => setElectionId(e.target.value)} placeholder="ID da eleição" disabled={demo} /></label>
-      <label>Token do eleitor <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Token de liberação" disabled={demo} /></label>
+    <section className="setup" aria-label="Status da simulacao">
       <label>Cargo <select value={office} disabled><option value="" disabled>Selecione</option>{offices.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <span className="demo-note">{demo ? 'Modo demonstração local — voto não gravado' : 'Voto enviado à API configurada'}</span>
+      <span className="demo-note">{demo ? 'Modo demonstracao local - voto nao gravado' : released ? (ballotReady ? 'Urna liberada pelo mesario' : 'Carregando votacao...') : 'Aguardando liberacao do mesario'}</span>
     </section>
     <section className="machine">
       <div className="display-panel">
-        <div className="display-head"><div><small>ELEIÇÕES • SIMULAÇÃO</small><h1>SEU VOTO<br/>PARA <strong>{office.toUpperCase()}</strong></h1></div><div className="seal">BR<br/><b>VOTO</b></div></div>
-        <div className="instruction">Digite o número do seu candidato:</div>
+        <div className="display-head"><div><small>ELEIÇÕES • SIMULAÇÃO</small><h1>SEU VOTO<br/>PARA <strong>{released ? office.toUpperCase() : 'AGUARDANDO'}</strong></h1></div><div className="seal">BR<br/><b>VOTO</b></div></div>
+        <div className="instruction">{released ? 'Digite o numero do seu candidato:' : 'Aguarde a liberacao do mesario.'}</div>
         <div className="ballot-area">
-          {finished ? <div className="fim">FIM</div> : <>
+          {finished ? <div className="fim">FIM</div> : !released ? <p className="help-text">Aguardando liberacao do mesario.</p> : <>
             <div className="number-row"><span>Número:</span><div className="digits">{Array.from({ length: numberLength }, (_, i) => <b key={i} className={entry[i] ? 'filled' : ''}>{entry[i] ?? ''}</b>)}</div></div>
             {entry.length > 0 && <div className="candidate-info">
               <div className="portrait">{selected?.photoUrl ? <img src={selected.photoUrl} alt={`Foto de ${selected.name}`} /> : <span>{selected ? selected.name.split(' ').map((x) => x[0]).slice(0, 2).join('') : '?'}</span>}</div>
@@ -117,9 +162,9 @@ export default function Urna() {
         <footer className="display-footer"><span>JUSTIÇA ELEITORAL</span><span>SIMULADOR 2026</span></footer>
       </div>
       <div className="keypad-panel"><div className="keypad-brand"><span>TECLADO</span><span>NUMÉRICO</span></div>
-        <div className="keys">{['1','2','3','4','5','6','7','8','9'].map((n) => <button key={n} className="number-key" onClick={() => key(n)} disabled={finished || busy}>{n}</button>)}<button className="number-key zero" onClick={() => key('0')} disabled={finished || busy}>0</button></div>
-        <div className="action-keys"><button className="white-key" onClick={() => confirm('blank')} disabled={finished || busy}>BRANCO</button><button className="orange-key" onClick={() => finished ? null : resetField()} disabled={busy}>CORRIGE</button><button className="green-key" onClick={() => confirm(invalid ? 'null' : 'candidate')} disabled={finished || busy}>CONFIRMA <span>↵</span></button></div>
-        {finished && demo && <button className="again" onClick={() => { setFinished(false); setToken(''); setOffice(offices[0] ?? ''); resetField(); }}>REINICIAR DEMONSTRAÇÃO</button>}
+        <div className="keys">{['1','2','3','4','5','6','7','8','9'].map((n) => <button key={n} className="number-key" onClick={() => key(n)} disabled={finished || busy || !released || !ballotReady}>{n}</button>)}<button className="number-key zero" onClick={() => key('0')} disabled={finished || busy || !released || !ballotReady}>0</button></div>
+        <div className="action-keys"><button className="white-key" onClick={() => confirm('blank')} disabled={finished || busy || !released || !ballotReady}>BRANCO</button><button className="orange-key" onClick={() => finished ? null : resetField()} disabled={busy || !released || !ballotReady}>CORRIGE</button><button className="green-key" onClick={() => confirm(invalid ? 'null' : 'candidate')} disabled={finished || busy || !released || !ballotReady}>CONFIRMA <span>↵</span></button></div>
+        {finished && demo && <button className="again" onClick={() => { setFinished(false); setOffice(offices[0] ?? ''); resetField(); }}>REINICIAR DEMONSTRAÇÃO</button>}
       </div>
     </section>
     <footer className="page-foot"><span>Projeto didático • Não utilizar em eleições reais</span><span>Confirme os dados antes de registrar</span></footer>
