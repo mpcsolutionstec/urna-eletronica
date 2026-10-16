@@ -36,7 +36,7 @@ export default function Admin() {
   const selectedElection = useMemo(() => elections.find((item) => item.id === electionId), [elections, electionId]);
 
   async function request(path, options = {}) {
-    const response = await fetch(`${API}/api${path}`, {
+    const response = await fetch(`${API}${path}`, {
       ...options,
       headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...options.headers },
     });
