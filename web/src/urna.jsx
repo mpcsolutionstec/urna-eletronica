@@ -9,6 +9,17 @@ const DEMO_CANDIDATES = [
 ];
 const DEMO_OFFICES = ['Vereador', 'Prefeito'];
 const demo = new URLSearchParams(location.search).get('demo') === '1' || import.meta.env.VITE_DEMO_MODE === 'true';
+let sharedAudioContext;
+
+function prepareAudio() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    sharedAudioContext ??= new AudioContextClass();
+    void sharedAudioContext.resume();
+    return sharedAudioContext;
+  } catch { return null; }
+}
 
 export default function Urna() {
   const [electionId, setElectionId] = useState('');
@@ -44,17 +55,19 @@ export default function Urna() {
   const knownPrefix = entry.length < 2 || officeCandidates.some((c) => c.number.startsWith(entry));
   const invalid = entry.length > 0 && !knownPrefix;
 
-  function tone() {
+  function tone(ctx) {
+    if (!ctx) return;
     try {
-      const ctx = new AudioContext();
-      [[740, 0], [520, 0.13]].forEach(([frequency, delay]) => {
+      // Cadência curta de bipes que recria o "pilili" para esta simulação.
+      [[740, 0, 0.09], [988, 0.12, 0.09], [784, 0.24, 0.22]].forEach(([frequency, delay, duration]) => {
         const oscillator = ctx.createOscillator(); const gain = ctx.createGain();
+        oscillator.type = 'square';
         oscillator.frequency.value = frequency; oscillator.connect(gain); gain.connect(ctx.destination);
-        gain.gain.setValueAtTime(0.08, ctx.currentTime + delay);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.16);
-        oscillator.start(ctx.currentTime + delay); oscillator.stop(ctx.currentTime + delay + 0.16);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.055, ctx.currentTime + delay + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + duration);
+        oscillator.start(ctx.currentTime + delay); oscillator.stop(ctx.currentTime + delay + duration);
       });
-      setTimeout(() => ctx.close(), 500);
     } catch { /* áudio pode estar desabilitado pelo navegador */ }
   }
 
@@ -62,13 +75,14 @@ export default function Urna() {
   async function confirm(choice = 'candidate') {
     if (choice === 'candidate' && (!selected || invalid)) { setMessage('Número incorreto. Tente novamente.'); return; }
     if (!demo && (!electionId || !token)) { setMessage('Informe a eleição e o token liberado pelo mesário.'); return; }
+    const audioContext = prepareAudio();
     setBusy(true);
     try {
       if (!demo) {
         const response = await fetch(`${API}/vote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ electionId, token, office, choice, ...(choice === 'candidate' ? { candidateNumber: entry } : {}) }) });
         const data = await response.json(); if (!response.ok) throw new Error(data.error ?? 'Falha ao votar.');
       }
-      tone();
+      tone(audioContext);
       const nextOffice = offices[offices.indexOf(office) + 1];
       if (nextOffice) { setOffice(nextOffice); resetField(); setMessage(`Voto confirmado. Próximo cargo: ${nextOffice}.`); }
       else { setFinished(true); setMessage(choice === 'blank' ? 'Voto em branco confirmado' : choice === 'null' ? 'Voto nulo confirmado' : 'Voto confirmado'); }
