@@ -220,11 +220,15 @@ api.delete('/admin/candidates/:id', adminAuth, async (req, res) => {
 api.post('/admin/release', adminAuth, async (req, res) => {
   const parsed = z.object({ electionId: idParam, cpf: z.string() }).safeParse(req.body);
   if (!parsed.success || !validCpf(parsed.data.cpf)) return res.status(400).json({ error: 'CPF ou eleição inválidos.' });
+  const cpfHash = cpfDigest(parsed.data.cpf);
+  const { data: voter, error: voterError } = await supabase.from('voters').select('name').eq('cpf_hash', cpfHash).maybeSingle();
+  if (voterError) return sendDatabaseError(res, voterError);
+  if (!voter) return res.status(404).json({ error: 'Eleitor não cadastrado.' });
   const token = randomToken();
-  const { error } = await supabase.rpc('release_voter', { p_election_id: parsed.data.electionId, p_cpf_hash: cpfDigest(parsed.data.cpf), p_token_hash: sha256(token), p_expires_at: new Date(Date.now() + 10 * 60_000).toISOString() });
+  const { error } = await supabase.rpc('release_voter', { p_election_id: parsed.data.electionId, p_cpf_hash: cpfHash, p_token_hash: sha256(token), p_expires_at: new Date(Date.now() + 10 * 60_000).toISOString() });
   if (error) return sendDatabaseError(res, error);
   await audit('voter_released', { electionId: parsed.data.electionId });
-  res.status(201).json({ token, expiresInMinutes: 10 });
+  res.status(201).json({ token, voterName: voter.name, expiresInMinutes: 10 });
 });
 
 api.post('/vote', async (req, res) => {

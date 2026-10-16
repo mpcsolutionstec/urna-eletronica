@@ -49,6 +49,16 @@
   box-shadow: inset 0 1px 0 #fff;
 }
 
+.voter-name {
+  margin: 6px 0 -3px;
+  overflow-wrap: anywhere;
+  color: #526159;
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+
+.voter-name b { color: #233d31; }
+
 .keypad-panel {
   position: relative;
   justify-content: flex-start;

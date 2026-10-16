@@ -14,9 +14,10 @@ function readMobileRelease() {
     const electionId = new URLSearchParams(location.search).get('election') || '';
     if (!electionId) return null;
     const storageKey = `urna-vote-${electionId}`;
-    const linkedToken = new URLSearchParams(location.hash.slice(1)).get('vote');
+    const linkData = new URLSearchParams(location.hash.slice(1));
+    const linkedToken = linkData.get('vote');
     if (linkedToken) {
-      sessionStorage.setItem(storageKey, JSON.stringify({ token: linkedToken, expiresAt: Date.now() + 10 * 60_000 }));
+      sessionStorage.setItem(storageKey, JSON.stringify({ token: linkedToken, voterName: linkData.get('name') || '', expiresAt: Date.now() + 10 * 60_000 }));
       history.replaceState(null, '', `${location.pathname}${location.search}`);
     }
     const release = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
@@ -24,7 +25,7 @@ function readMobileRelease() {
       sessionStorage.removeItem(storageKey);
       return null;
     }
-    return { electionId, token: release.token, storageKey };
+    return { electionId, token: release.token, storageKey, voterName: release.voterName || '' };
   } catch { return null; }
 }
 
@@ -44,6 +45,7 @@ export default function Urna() {
   const [kioskRelease, setKioskRelease] = useState(() => demo ? null : readMobileRelease());
   const electionId = kioskRelease?.electionId ?? '';
   const token = kioskRelease?.token ?? '';
+  const voterName = kioskRelease?.voterName ?? '';
   const released = demo || Boolean(kioskRelease);
   const [office, setOffice] = useState('Vereador');
   const [offices, setOffices] = useState(demo ? DEMO_OFFICES : []);
@@ -122,7 +124,7 @@ export default function Urna() {
     </section>
     <section className="machine">
       <div className="display-panel">
-        <div className="display-head"><div><small>ELEIÇÕES • SIMULAÇÃO</small><h1>SEU VOTO<br/>PARA <strong>{released ? office.toUpperCase() : 'AGUARDANDO'}</strong></h1></div><div className="seal">BR<br/><b>VOTO</b></div></div>
+        <div className="display-head"><div><small>ELEIÇÕES • SIMULAÇÃO</small>{voterName && <p className="voter-name">Eleitor: <b>{voterName}</b></p>}<h1>SEU VOTO<br/>PARA <strong>{released ? office.toUpperCase() : 'AGUARDANDO'}</strong></h1></div><div className="seal">BR<br/><b>VOTO</b></div></div>
         <div className="instruction">{released ? 'Digite o numero do seu candidato:' : 'Abra o link individual enviado pelo mesario.'}</div>
         <div className="ballot-area">
           {finished ? <div className="fim">FIM</div> : !released ? <p className="help-text">Solicite ao mesario o link individual para votar.</p> : <>
