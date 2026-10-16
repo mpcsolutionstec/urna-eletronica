@@ -179,7 +179,7 @@ drop function if exists public.record_vote(text, text, text, text, text, timesta
 create or replace function public.record_vote(
   p_election_id uuid, p_token_hash text, p_office text, p_choice text, p_candidate_number text,
   p_nonce text, p_recorded_at timestamptz, p_integrity_key text
-) returns void language plpgsql security definer set search_path = public as $$
+) returns void language plpgsql security definer set search_path = extensions, pg_catalog as $$
 declare
   v_release public.voter_releases%rowtype;
   v_participation public.participation%rowtype;
@@ -211,8 +211,10 @@ begin
   )::text;
   v_previous := v_election.chain_head;
   v_sequence := v_election.vote_count + 1;
-  v_digest := encode(digest(v_previous || ':' || v_payload, 'sha256'), 'hex');
-  v_signature := encode(hmac(v_digest, p_integrity_key, 'sha256'), 'hex');
+  -- Supabase instala pgcrypto no schema extensions; qualifique as funções porque
+  -- esta função SECURITY DEFINER limita o search_path a public.
+  v_digest := encode(extensions.digest(v_previous || ':' || v_payload, 'sha256'), 'hex');
+  v_signature := encode(extensions.hmac(v_digest, p_integrity_key, 'sha256'), 'hex');
 
   insert into public.ballots (election_id, office, choice, candidate_number, nonce, recorded_at,
     sequence, previous_digest, digest, signature, payload_json)
