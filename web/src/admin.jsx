@@ -126,7 +126,7 @@ export default function Admin() {
     if (!validCpf(releaseCpf)) throw new Error('CPF invalido.');
     setReleaseLink('');
     const result = await request('/admin/release', { method: 'POST', body: JSON.stringify({ electionId, cpf: digits(releaseCpf) }) });
-    const voteUrl = new URL(import.meta.env.BASE_URL || '/', location.origin);
+    const voteUrl = new URL(`${import.meta.env.BASE_URL || '/'}index.html`, location.origin);
     voteUrl.searchParams.set('election', electionId);
     voteUrl.hash = new URLSearchParams({ vote: result.token }).toString();
     setReleaseLink(voteUrl.toString());
