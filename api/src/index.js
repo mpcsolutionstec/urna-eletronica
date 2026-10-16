@@ -183,10 +183,11 @@ api.get('/admin/candidates', adminAuth, async (req, res) => {
   res.json(data.map(({ election_id: electionId, photo_url: photoUrl, created_at: createdAt, ...candidate }) => ({ ...candidate, electionId, photoUrl, createdAt })));
 });
 api.post('/admin/candidates', adminAuth, async (req, res) => {
-  const parsed = z.object({ electionId: idParam, office: z.string().trim().min(1).max(60), number: z.string().regex(/^\d{2,5}$/), name: z.string().trim().min(1).max(120), party: z.string().trim().min(1).max(40), photoUrl: z.string().url().optional() }).safeParse(req.body);
+  const parsed = z.object({ electionId: idParam, office: z.string().trim().min(1).max(60), number: z.string().regex(/^\d{2,5}$/), name: z.string().trim().min(1).max(120), party: z.string().trim().min(1).max(40), photoUrl: z.string().url().or(z.literal('')).optional() }).safeParse(req.body);
   if (!parsed.success || (parsed.data.photoUrl && !parsed.data.photoUrl.startsWith('https://'))) return res.status(400).json({ error: 'Dados do candidato inválidos; a foto deve usar HTTPS.' });
-  const { electionId, office, number, name, party, photoUrl } = parsed.data;
-  const { data, error } = await supabase.rpc('register_candidate', { p_election_id: electionId, p_office: office, p_number: number, p_name: name, p_party: party, p_photo_url: photoUrl ?? null });
+  const { electionId, office, number, name, party } = parsed.data;
+  const photoUrl = parsed.data.photoUrl || null;
+  const { data, error } = await supabase.rpc('register_candidate', { p_election_id: electionId, p_office: office, p_number: number, p_name: name, p_party: party, p_photo_url: photoUrl });
   if (error) return sendDatabaseError(res, error);
   await audit('candidate_created', { electionId });
   res.status(201).json({ id: data, electionId, office, number, name, party, photoUrl: photoUrl ?? '' });

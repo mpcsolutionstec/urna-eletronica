@@ -109,7 +109,7 @@ export default function Admin() {
   }
   async function addCandidate() {
     if (candidate.photoUrl && !candidate.photoUrl.startsWith('https://')) throw new Error('A URL da foto deve usar HTTPS.');
-    await request('/admin/candidates', { method: 'POST', body: JSON.stringify({ electionId, ...candidate, number: digits(candidate.number) }) });
+    await request('/admin/candidates', { method: 'POST', body: JSON.stringify({ electionId, ...candidate, number: digits(candidate.number), photoUrl: candidate.photoUrl.trim() || undefined }) });
     setCandidate({ ...candidate, number: '', name: '', party: '', photoUrl: '' }); await refreshRecords(); setStatus('Candidato cadastrado.');
   }
   async function editCandidate(row) {
