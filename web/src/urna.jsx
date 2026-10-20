@@ -14,11 +14,14 @@ function readMobileRelease() {
     const electionId = new URLSearchParams(location.search).get('election') || '';
     if (!electionId) return null;
     const storageKey = `urna-vote-${electionId}`;
+    const query = new URLSearchParams(location.search);
     const linkData = new URLSearchParams(location.hash.slice(1));
     const linkedToken = linkData.get('vote');
     if (linkedToken) {
-      sessionStorage.setItem(storageKey, JSON.stringify({ token: linkedToken, voterName: linkData.get('name') || '', expiresAt: Date.now() + 10 * 60_000 }));
-      history.replaceState(null, '', `${location.pathname}${location.search}`);
+      sessionStorage.setItem(storageKey, JSON.stringify({ token: linkedToken, voterName: query.get('eleitor') || linkData.get('name') || '', expiresAt: Date.now() + 10 * 60_000 }));
+      query.delete('eleitor');
+      const cleanSearch = query.toString();
+      history.replaceState(null, '', `${location.pathname}${cleanSearch ? `?${cleanSearch}` : ''}`);
     }
     const release = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
     if (!release?.token || release.expiresAt <= Date.now()) {

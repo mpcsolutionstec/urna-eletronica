@@ -141,9 +141,8 @@ export default function Admin() {
     const voteUrl = new URL(`${import.meta.env.BASE_URL || '/'}index.html`, location.origin);
     voteUrl.searchParams.set('election', electionId);
     const name = typeof result.voterName === 'string' ? result.voterName.trim() : '';
-    const linkData = new URLSearchParams({ vote: result.token });
-    if (name) linkData.set('name', name);
-    voteUrl.hash = linkData.toString();
+    if (name) voteUrl.searchParams.set('eleitor', name);
+    voteUrl.hash = new URLSearchParams({ vote: result.token }).toString();
     setReleaseLink(voteUrl.toString());
     setReleaseName(name);
     setReleaseCpf('');
