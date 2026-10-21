@@ -59,6 +59,11 @@
 
 .voter-name b { color: #233d31; }
 
+.page-foot .copyright {
+  flex-basis: 100%;
+  text-align: center;
+}
+
 .keypad-panel {
   position: relative;
   justify-content: flex-start;

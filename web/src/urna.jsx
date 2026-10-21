@@ -148,6 +148,6 @@ export default function Urna() {
         {finished && demo && <button className="again" onClick={() => { setFinished(false); setOffice(offices[0] ?? ''); resetField(); }}>REINICIAR DEMONSTRAÇÃO</button>}
       </div>
     </section>
-    <footer className="page-foot"><span>Projeto didático • Não utilizar em eleições reais</span><span>Confirme os dados antes de registrar</span></footer>
+    <footer className="page-foot"><span>Projeto didático • Não utilizar em eleições reais</span><span>Confirme os dados antes de registrar</span><span className="copyright">© 2026 MPC SOLUTIONS®. Todos os direitos reservados. By MarcioCC</span></footer>
   </main>;
 }
