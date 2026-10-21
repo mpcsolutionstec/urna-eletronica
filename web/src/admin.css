@@ -2,3 +2,6 @@
 .candidate-preview{display:block;width:112px;height:132px;object-fit:cover;border-radius:6px;border:1px solid #d5dfda;margin:8px 0 12px}.admin-login input[type=email]{text-transform:none}
 .admin-card select{border:1px solid #d5dfda;border-radius:6px;padding:10px 11px;font:12px Manrope,sans-serif;color:#1b2924;background:#fff;min-width:0}.admin-record{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #e4e9e6;font-size:11px}.admin-record>span{display:grid;gap:5px}.admin-record small{font-size:10px;color:#718078}.admin-record button{padding:8px 10px}
 .privacy-note{font-size:10px;line-height:1.5;color:#8a5737;background:#fbf3ed;padding:9px;border-radius:5px;margin:0 0 12px}
+
+/* Keep the login notice and copyright footer visible together. */
+.admin-login{margin:8vh auto 3vh}@media(max-width:700px){.admin-login{margin:7vh auto 3vh}}
